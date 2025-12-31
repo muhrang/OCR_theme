@@ -1,5 +1,5 @@
 # ===============================
-# THEME OCR + PRE/POST CORRECTION (FULL)
+# THEME OCR + PRE/POST CORRECTION (FULL) - LOCAL (CMD OUTPUT)
 # ===============================
 
 import cv2
@@ -8,7 +8,10 @@ import easyocr
 import re
 import pandas as pd
 import Levenshtein
-from google.colab import files
+import os
+import glob
+import tkinter as tk
+from tkinter import filedialog
 
 # ===============================
 # THEME POOL
@@ -32,7 +35,7 @@ THEME_POOL = [
     "게임","엔터","빌보드",
     "안테나","보안","해킹",
 
-    "삼성","SK하이닉스","SK","지주사","반도체","2차전지"
+    "삼성","SK하이닉스","SK","지주사","반도체","2차전지",
     "증권","스테이블","스테이블코인","IOT","건설","철도",
 
     "당뇨","치매","알츠하이머","치매약",
@@ -46,7 +49,7 @@ THEME_POOL = [
 
     "바이오","제약","줄기세포","마이크로바이옴",
 
-    "리튬","탄소포집","탄소",
+    "리튬","탄소포집","탄소","자동차",
     "5G","6G","통신장비",
 
     "신규주","중동재건","남북경협",
@@ -74,8 +77,9 @@ THEME_POOL = [
     "기후","온난화","지구온난화"
 ]
 
-
-
+# ===============================
+# JAMO
+# ===============================
 def h2j(text):
     CHO = ['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ']
     JUNG = ['ㅏ','ㅐ','ㅑ','ㅒ','ㅓ','ㅔ','ㅕ','ㅖ','ㅗ','ㅘ','ㅙ','ㅚ','ㅛ','ㅜ','ㅝ','ㅞ','ㅟ','ㅠ','ㅡ','ㅢ','ㅣ']
@@ -122,36 +126,65 @@ reader = easyocr.Reader(['ko','en'], gpu=True)
 
 def extract_with_debug(img_path):
     img = cv2.imread(img_path)
+    if img is None:
+        return []
+
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     mask = cv2.inRange(hsv, (15,70,120), (45,255,255))
 
-    contours,_ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     rows = []
 
     for c in contours:
-        x,y,w,h = cv2.boundingRect(c)
+        x, y, w, h = cv2.boundingRect(c)
         if w < 30 or h < 8:
             continue
+
         roi = img[y:y+h, x:x+w]
-        roi = cv2.resize(roi,None,fx=3,fy=3)
-        raw = "".join(reader.readtext(roi,detail=0))
+        roi = cv2.resize(roi, None, fx=3, fy=3)
+        raw = "".join(reader.readtext(roi, detail=0))
         corrected = correct_theme_from_pool(raw)
         rows.append([img_path, raw, corrected])
 
     return rows
 
 # ===============================
-# RUN
+# RUN (FILE SELECT + CMD OUTPUT)
 # ===============================
-uploaded = files.upload()
-out = []
+def main():
+    root = tk.Tk()
+    root.withdraw()
 
-for fn in uploaded.keys():
-    rows = extract_with_debug(fn)
-    for r in rows:
-        print(f"RAW ▶ {r[1]}  ==>  CORRECT ▶ {r[2]}")
-        out.append(r)
+    image_files = filedialog.askopenfilenames(
+        title="이미지 파일 선택",
+        filetypes=[
+            ("Image files", "*.png *.jpg *.jpeg *.bmp"),
+            ("All files", "*.*")
+        ]
+    )
 
-df = pd.DataFrame(out, columns=["파일","보정전(OCR)","보정후(테마)"])
-df.to_csv("theme_debug_result.csv", index=False, encoding="utf-8-sig")
-files.download("theme_debug_result.csv")
+    if not image_files:
+        print("❌ 선택된 파일 없음")
+        return
+
+    found_themes = set()
+
+    for img_path in image_files:
+        print(f"\n[FILE] {img_path}")
+        rows = extract_with_debug(img_path)
+
+        for _, raw, corrected in rows:
+            if corrected:
+                found_themes.add(corrected)
+                print(f"  ▶ THEME : {corrected}")
+
+    print("\n===============================")
+    print("✅ 최종 추출 테마 목록")
+    print("===============================")
+    for t in sorted(found_themes):
+        print(f"- {t}")
+    print("===============================")
+    print("총 테마 개수:", len(found_themes))
+
+if __name__ == "__main__":
+    main()
